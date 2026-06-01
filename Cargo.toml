@@ -1,0 +1,30 @@
+[package]
+name = "cmd-transformer"
+version = "0.1.0"
+edition = "2021"
+ 
+[[bin]]
+name  = "train"
+path  = "src/main.rs"
+ 
+[[bin]]
+name  = "infer"
+path  = "src/infer.rs"
+ 
+[[bin]]
+name  = "cmd-record"      # 被 zsh hook 调用，记录单条命令
+path  = "src/cmd_record.rs"
+ 
+[features]
+cuda = ["candle-core/cuda", "candle-nn/cuda"]
+
+[dependencies]
+candle-core = { version = "0.10.2" }
+candle-nn   = { version = "0.10.2" }
+ 
+# bundled = 静态链接 SQLite，不依赖系统库
+rusqlite = { version = "0.31", features = ["bundled"] }
+ 
+anyhow = "1.0"
+rand   = "0.8"
+
