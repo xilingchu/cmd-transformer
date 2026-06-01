@@ -29,19 +29,39 @@ fn db_path() -> PathBuf {
 }
 
 // ── Data loading ──────────────────────────────────────────────────────────────
-fn load_commands() -> Result<Vec<String>> {
+// Returns the full training text with format:
+//   [/path/to/cwd] command\n
+// Sessions are separated by a blank line so the model doesn't learn
+// cross-session continuations.
+fn load_commands() -> Result<(String, usize)> {
     let path = db_path();
     let conn =
         Connection::open(&path).with_context(|| format!("cannot open {:?}", path))?;
     let mut stmt = conn.prepare(
-        "SELECT cmd FROM commands ORDER BY session, recorded_at",
+        "SELECT cmd, cwd, session FROM commands ORDER BY session, recorded_at",
     )?;
-    let cmds: Vec<String> = stmt
-        .query_map([], |row| row.get(0))?
+
+    let rows: Vec<(String, String, String)> = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get(1)?, row.get(2)?)))?
         .filter_map(|r| r.ok())
-        .filter(|s: &String| !s.trim().is_empty() && s.len() <= 256)
+        .filter(|(cmd, _, _)| !cmd.trim().is_empty() && cmd.len() <= 256)
         .collect();
-    Ok(cmds)
+
+    let count = rows.len();
+    let mut text = String::new();
+    let mut cur_session = String::new();
+
+    for (cmd, cwd, session) in rows {
+        if session != cur_session {
+            if !cur_session.is_empty() {
+                text.push('\n'); // blank line between sessions
+            }
+            cur_session = session;
+        }
+        text.push_str(&format!("[{}] {}\n", cwd, cmd));
+    }
+
+    Ok((text, count))
 }
 
 // ── Tokenizer (character-level) ───────────────────────────────────────────────
@@ -280,11 +300,10 @@ fn detect_device() -> Result<Device> {
 // ── Main ──────────────────────────────────────────────────────────────────────
 fn main() -> Result<()> {
     println!("Loading commands from database...");
-    let cmds = load_commands()?;
-    anyhow::ensure!(!cmds.is_empty(), "no commands in database — run cmd-record first");
-    println!("  {} commands loaded", cmds.len());
+    let (text, count) = load_commands()?;
+    anyhow::ensure!(count > 0, "no commands in database — run cmd-record first");
+    println!("  {} commands loaded", count);
 
-    let text = cmds.join("\n");
     let vocab = Vocab::build(&text);
     println!("  vocabulary: {} chars", vocab.size());
 
